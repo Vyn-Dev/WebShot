@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 import sharp from 'sharp';
 
 export async function POST(request: NextRequest) {
@@ -15,7 +16,6 @@ export async function POST(request: NextRequest) {
       quality = 90 
     } = body;
 
-    // Validasi URL
     if (!url) {
       return NextResponse.json(
         { error: 'URL is required' },
@@ -23,30 +23,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Launch browser
+    // Use Chromium for Vercel
+    const executablePath = await chromium.executablePath();
     const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
-      ]
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: executablePath,
+      headless: chromium.headless,
     });
 
     const page = await browser.newPage();
     
-    // Set user agent
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-    // Navigate to URL
     await page.goto(url, { 
       waitUntil: 'networkidle0',
       timeout: 30000 
     });
     
-    // Wait for delay
     await new Promise(resolve => setTimeout(resolve, delay));
 
     // Set viewport based on shot type
@@ -82,13 +76,10 @@ export async function POST(request: NextRequest) {
           };
         }
         break;
-      default:
-        viewportConfig = { width: 1920, height: 1080 };
     }
 
     await page.setViewport(viewportConfig);
 
-    // Capture screenshot
     const screenshotBuffer = await page.screenshot({
       encoding: 'buffer',
       fullPage,
@@ -100,18 +91,13 @@ export async function POST(request: NextRequest) {
     // Process image with Sharp
     let processedImage = screenshotBuffer;
 
-    // Apply decorations
     if (decorations && decorations.length > 0) {
       const metadata = await sharp(processedImage).metadata();
       let sharpInstance = sharp(processedImage);
 
       decorations.forEach((decoration: string) => {
         switch (decoration) {
-          case 'shadow':
-            // Shadow sudah dihandle di frontend CSS
-            break;
           case 'gradient':
-            // Add gradient border
             const gradientSvg = `
               <svg width="${metadata.width}" height="${metadata.height}">
                 <rect width="${metadata.width}" height="${metadata.height}" 
@@ -130,11 +116,7 @@ export async function POST(request: NextRequest) {
               gravity: 'northwest' 
             }]);
             break;
-          case 'glow':
-            // Glow effect dihandle di frontend
-            break;
           case 'corner':
-            // Add corner accents
             const cornerSvg = `
               <svg width="${metadata.width}" height="${metadata.height}">
                 <rect x="10" y="10" width="40" height="40" fill="none" stroke="#8B5CF6" stroke-width="3" rx="4"/>
@@ -149,7 +131,6 @@ export async function POST(request: NextRequest) {
             }]);
             break;
           case 'frame':
-            // Add frame border
             const frameSvg = `
               <svg width="${metadata.width}" height="${metadata.height}">
                 <rect x="5" y="5" width="${metadata.width - 10}" height="${metadata.height - 10}" 
@@ -198,7 +179,6 @@ export async function POST(request: NextRequest) {
       processedImage = await sharpInstance.png().toBuffer();
     }
 
-    // Convert to base64
     const base64Image = processedImage.toString('base64');
 
     return NextResponse.json({
